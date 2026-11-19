@@ -1,11 +1,14 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { ProblemModel, type Problem } from '../models/Problem.js';
 import { connectDatabase } from '../services/database.js';
 
+dotenv.config({ path: new URL('../../.env', import.meta.url) });
+
 const starterCode = new Map([
   ['javascript', 'function solve(input) {\n  // Write your solution\n}\n'],
   ['python', 'def solve(input):\n    # Write your solution\n'],
+  ['java', 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        String input = scanner.hasNextLine() ? scanner.nextLine() : \"\";\n        System.out.print(solve(input));\n    }\n\n    public static String solve(String input) {\n        // Write your solution\n        return \"\";\n    }\n}\n'],
 ]);
 
 const problems: Problem[] = [
@@ -151,11 +154,21 @@ const problems: Problem[] = [
   },
 ];
 
-await connectDatabase();
+try {
+  await connectDatabase({ required: true });
 
-for (const problem of problems) {
-  await ProblemModel.updateOne({ slug: problem.slug }, { $set: problem }, { upsert: true });
+  for (const problem of problems) {
+    await ProblemModel.updateOne({ slug: problem.slug }, { $set: problem }, { upsert: true });
+  }
+
+  console.log(`Seeded ${problems.length} problems`);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('Seed failed: MongoDB could not be reached.');
+  console.error(message);
+  process.exitCode = 1;
+} finally {
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
 }
-
-console.log(`Seeded ${problems.length} problems`);
-await mongoose.disconnect();

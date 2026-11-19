@@ -1,18 +1,28 @@
 import cors from 'cors';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
-import { CLIENT_ORIGIN, PORT } from './config/constants.js';
+import mongoose from 'mongoose';
+import { getClientOrigin, getPort } from './config/constants.js';
 import { problemRouter } from './routes/problems.js';
+import { submissionRouter } from './routes/submissions.js';
 import { connectDatabase } from './services/database.js';
+
+dotenv.config({ path: new URL('../.env', import.meta.url) });
 
 const app = express();
 
-app.use(cors({ origin: CLIENT_ORIGIN }));
-app.use(express.json());
+const port = getPort();
+
+app.use(cors({ origin: getClientOrigin() }));
+app.use(express.json({ limit: '64kb' }));
 app.use('/api/problems', problemRouter);
+app.use('/api/submissions', submissionRouter);
 
 app.get('/health', (_request, response) => {
-  response.json({ status: 'ok' });
+  response.json({
+    status: 'ok',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  });
 });
 
 connectDatabase()
@@ -20,7 +30,7 @@ connectDatabase()
     console.error('MongoDB connection failed:', error);
   })
   .finally(() => {
-    app.listen(PORT, () => {
-      console.log(`VerdictAI server listening on http://localhost:${PORT}`);
+    app.listen(port, () => {
+      console.log(`VerdictAI server listening on http://localhost:${port}`);
     });
   });
