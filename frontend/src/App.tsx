@@ -26,12 +26,6 @@ const navItems = [
   { label: 'Progress', icon: BarChart3 },
 ]
 
-const statCards = [
-  { label: 'Problems solved', value: '12', detail: '+3 this week', icon: CheckCircle2, tone: 'green' },
-  { label: 'Current streak', value: '4 days', detail: 'Keep it going', icon: Flame, tone: 'orange' },
-  { label: 'Total points', value: '840', detail: 'Top 18% this month', icon: Trophy, tone: 'purple' },
-]
-
 function App() {
   const [problems, setProblems] = useState<Problem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -47,7 +41,20 @@ function App() {
   const [runOutput, setRunOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [solvedProblems, setSolvedProblems] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem('verdictai-solved-problems')
+    try {
+      const ids = saved ? JSON.parse(saved) as string[] : []
+      return new Set(ids)
+    } catch {
+      return new Set()
+    }
+  })
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    localStorage.setItem('verdictai-solved-problems', JSON.stringify([...solvedProblems]))
+  }, [solvedProblems])
 
   const loadProblems = async () => {
     setIsLoading(true)
@@ -122,6 +129,7 @@ function App() {
 
   const runCode = async () => {
     if (!selectedProblem?.tests) return
+    const startedAt = performance.now()
     setIsRunning(true)
     setRunOutput('')
     try {
@@ -148,13 +156,23 @@ function App() {
       ).join('\n\n')
 
       const metrics = [
-        result.executionTimeMs !== null ? `Execution: ${result.executionTimeMs} ms` : null,
-        result.memoryUsedKb !== null ? `Memory: ${result.memoryUsedKb} KB` : null,
+        `Wall-clock time: ${Math.round(performance.now() - startedAt)} ms`,
+        result.totalExecutionTimeMs !== null ? `Total judge runtime: ${result.totalExecutionTimeMs} ms` : null,
+        result.executionTimeMs !== null ? `Average judge runtime: ${result.executionTimeMs} ms` : null,
+        result.maxMemoryUsedKb !== null ? `Peak memory: ${result.maxMemoryUsedKb} KB` : null,
+        result.memoryUsedKb !== null ? `Average memory: ${result.memoryUsedKb} KB` : null,
         result.complexity ? `Estimated time: ${result.complexity.time}` : null,
         result.complexity ? `Estimated space: ${result.complexity.space}` : null,
       ].filter(Boolean).join('\n')
 
       setRunOutput([testOutput, metrics].filter(Boolean).join('\n\n'))
+      if (result.status === 'passed') {
+        setSolvedProblems((current) => {
+          const next = new Set(current)
+          next.add(selectedProblem.slug)
+          return next
+        })
+      }
     } catch (submissionError) {
       setRunOutput(submissionError instanceof Error ? submissionError.message : 'Submission failed')
     } finally {
@@ -188,6 +206,14 @@ function App() {
   }
 
   const currentProblem = selectedProblem ?? filteredProblems[0]
+  const solvedCount = solvedProblems.size
+  const dailyGoal = 5
+  const dailyProgress = Math.min(solvedCount, dailyGoal)
+  const statCards = [
+    { label: 'Problems solved', value: String(solvedCount), detail: solvedCount ? 'Saved on this device' : 'Start solving', icon: CheckCircle2, tone: 'green' },
+    { label: 'Daily progress', value: `${dailyProgress} / ${dailyGoal}`, detail: dailyProgress === dailyGoal ? 'Daily goal complete' : 'Keep your streak going', icon: Flame, tone: 'orange' },
+    { label: 'Total points', value: String(solvedCount * 70), detail: '70 points per problem', icon: Trophy, tone: 'purple' },
+  ]
 
   if (activeView === 'problem' && selectedProblem) {
     return (
@@ -279,9 +305,9 @@ function App() {
         </nav>
         <div className="sidebar-bottom">
           <div className="daily-goal">
-            <div className="goal-heading"><span>Daily goal</span><strong>3 / 5</strong></div>
-            <div className="progress-track"><span style={{ width: '60%' }} /></div>
-            <p>Two more problems to stay on track.</p>
+            <div className="goal-heading"><span>Daily goal</span><strong>{dailyProgress} / {dailyGoal}</strong></div>
+            <div className="progress-track"><span style={{ width: `${(dailyProgress / dailyGoal) * 100}%` }} /></div>
+            <p>{dailyProgress === dailyGoal ? 'Daily goal complete.' : `${dailyGoal - dailyProgress} more problem${dailyGoal - dailyProgress === 1 ? '' : 's'} to stay on track.`}</p>
           </div>
           <button type="button" className="nav-item" onClick={() => setNotice('Settings are connected from your account.')}><Settings size={17} /><span>Settings</span></button>
           <button type="button" className="nav-item" onClick={() => setNotice('Open a problem and run your visible test cases.')}><CircleHelp size={17} /><span>Help center</span></button>

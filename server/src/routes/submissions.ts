@@ -115,6 +115,8 @@ submissionRouter.post('/', async (request, response) => {
     passedHiddenTests === totalHiddenTests;
   const executionTimes = visibleResults.map((result) => result.executionTimeMs).filter((value): value is number => value !== null);
   const memoryValues = visibleResults.map((result) => result.memoryUsedKb).filter((value): value is number => value !== null);
+  const totalExecutionTimeMs = executionTimes.reduce((sum, value) => sum + value, 0);
+  const maxMemoryUsedKb = memoryValues.length ? Math.max(...memoryValues) : null;
 
   response.json({
     status: passedAllTests ? 'passed' : 'failed',
@@ -126,9 +128,11 @@ submissionRouter.post('/', async (request, response) => {
     executionTimeMs: executionTimes.length
       ? Math.round(executionTimes.reduce((sum, value) => sum + value, 0) / executionTimes.length)
       : null,
+    totalExecutionTimeMs: executionTimes.length ? totalExecutionTimeMs : null,
     memoryUsedKb: memoryValues.length
       ? Math.round(memoryValues.reduce((sum, value) => sum + value, 0) / memoryValues.length)
       : null,
+    maxMemoryUsedKb,
     complexity: estimateComplexity(parsed.data.language as SupportedLanguage, parsed.data.code),
   });
 });
