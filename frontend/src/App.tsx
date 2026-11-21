@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CheckCircle2,
   ChevronRight, CircleHelp, Code2, Flame, LayoutDashboard, Menu,
@@ -17,14 +17,103 @@ type Problem = {
   starterCode?: Record<Language, string>
   tests?: Array<{ input: string; expectedOutput: string }>
 }
+type SubmissionHistoryItem = {
+  _id: string
+  problemSlug: string
+  language: Language
+  status: 'passed' | 'failed'
+  passedTests: number
+  totalTests: number
+  executionTimeMs: number | null
+  memoryUsedKb: number | null
+  createdAt: string
+}
+type AuthUser = { email: string; displayName: string }
+type AuthMode = 'login' | 'register'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
+const API_URL = import.meta.env.VITE_API_URL ??
+  (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:4000` : '')
+const dashboardNow = new Date()
+const clientId = (() => {
+  const key = 'verdictai-client-id'
+  const existing = localStorage.getItem(key)
+  if (existing) return existing
+  const created = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `client-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+  localStorage.setItem(key, created)
+  return created
+})()
 
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard },
   { label: 'Problems', icon: Code2, count: '10' },
   { label: 'Progress', icon: BarChart3 },
 ]
+
+function AuthModal({
+  mode,
+  user,
+  name,
+  email,
+  password,
+  error,
+  isLoading,
+  onModeChange,
+  onNameChange,
+  onEmailChange,
+  onPasswordChange,
+  onSubmit,
+  onLogout,
+  onClose,
+}: {
+  mode: AuthMode
+  user: AuthUser | null
+  name: string
+  email: string
+  password: string
+  error: string | null
+  isLoading: boolean
+  onModeChange: (mode: AuthMode) => void
+  onNameChange: (value: string) => void
+  onEmailChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onLogout: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <button type="button" className="auth-close icon-button" onClick={onClose} aria-label="Close account dialog"><X size={17} /></button>
+        {user ? (
+          <>
+            <span className="eyebrow">Account</span>
+            <h2 id="auth-title">Welcome, {user.displayName}</h2>
+            <p className="auth-subtitle">{user.email}</p>
+            <button type="button" className="secondary-button full-width" onClick={onLogout}>Log out</button>
+          </>
+        ) : (
+          <>
+            <span className="eyebrow">VerdictAI account</span>
+            <h2 id="auth-title">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
+            <p className="auth-subtitle">{mode === 'login' ? 'Sign in to keep your learning progress with you.' : 'Save your progress and submission history securely.'}</p>
+            <form className="auth-form" onSubmit={onSubmit}>
+              {mode === 'register' && <label>Name<input value={name} onChange={(event) => onNameChange(event.target.value)} autoComplete="name" required /></label>}
+              <label>Email<input type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} autoComplete="email" required /></label>
+              <label>Password<input type="password" value={password} onChange={(event) => onPasswordChange(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required /></label>
+              {error && <p className="auth-error" role="alert">{error}</p>}
+              <button type="submit" className="primary-button full-width" disabled={isLoading}>{isLoading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Create account'}</button>
+            </form>
+            <button type="button" className="text-button auth-switch" onClick={() => onModeChange(mode === 'login' ? 'register' : 'login')}>
+              {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log in'}
+            </button>
+          </>
+        )}
+      </section>
+    </div>
+  )
+}
 
 function App() {
   const [problems, setProblems] = useState<Problem[]>([])
@@ -41,6 +130,18 @@ function App() {
   const [runOutput, setRunOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [submissionHistory, setSubmissionHistory] = useState<SubmissionHistoryItem[]>([])
+  const [dailySolvedCount, setDailySolvedCount] = useState(0)
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [isAuthOpen, setIsAuthOpen] = useState(() => {
+    return !localStorage.getItem('verdictai-auth-dismissed')
+  })
+  const [authMode, setAuthMode] = useState<AuthMode>('register')
+  const [authName, setAuthName] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState(false)
   const [solvedProblems, setSolvedProblems] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('verdictai-solved-problems')
     try {
@@ -71,7 +172,20 @@ function App() {
   }
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Initial async resource load updates loading and error state.
     void loadProblems()
+  }, [])
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/auth/me`, { credentials: 'include' })
+      .then(async (response) => {
+        if (response.ok) {
+          const user = (await response.json()).user
+          setAuthUser(user)
+          if (user) void loadSubmissionHistory()
+        }
+      })
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -99,6 +213,68 @@ function App() {
     )
   }, [difficulty, problems, search])
 
+  async function loadSubmissionHistory() {
+    try {
+      const response = await fetch(`${API_URL}/api/submissions`, {
+        headers: { 'x-client-id': clientId },
+        credentials: 'include',
+      })
+      if (response.ok) {
+        const history = await response.json() as SubmissionHistoryItem[]
+        setSubmissionHistory(history)
+        setDailySolvedCount(new Set(history.filter((item) =>
+          item.status === 'passed' &&
+          new Date(item.createdAt).toDateString() === new Date().toDateString(),
+        ).map((item) => item.problemSlug)).size)
+        setSolvedProblems((current) => {
+          const passed = new Set(history.filter((item) => item.status === 'passed').map((item) => item.problemSlug))
+          return passed.size ? passed : current
+        })
+      }
+    } catch {
+      setSubmissionHistory([])
+    }
+  }
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setIsAuthLoading(true)
+    setAuthError(null)
+    try {
+      const response = await fetch(`${API_URL}/api/auth/${authMode === 'login' ? 'login' : 'register'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...(authMode === 'register' ? { displayName: authName } : {}),
+          email: authEmail,
+          password: authPassword,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error ?? 'Authentication failed')
+      setAuthUser(result.user)
+      setAuthPassword('')
+      setIsAuthOpen(false)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed')
+    } finally {
+      setIsAuthLoading(false)
+    }
+  }
+
+  const logout = async () => {
+    await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' })
+    setAuthUser(null)
+    localStorage.removeItem('verdictai-auth-dismissed')
+    setIsAuthOpen(false)
+  }
+
+  const closeAuth = () => {
+    localStorage.setItem('verdictai-auth-dismissed', 'true')
+    setIsAuthOpen(false)
+  }
+
   async function openProblem(problem: Problem) {
     setNotice(null)
     setIsLoading(true)
@@ -112,6 +288,7 @@ function App() {
       setLanguage('javascript')
       setCode(detail.starterCode?.javascript ?? '')
       setRunOutput('')
+      await loadSubmissionHistory()
       window.location.hash = `#/problem/${detail.slug}`
       window.scrollTo({ top: 0 })
     } catch {
@@ -135,7 +312,8 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/api/submissions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-client-id': clientId },
+        credentials: 'include',
         body: JSON.stringify({
           problemId: selectedProblem._id ?? selectedProblem.slug,
           language,
@@ -144,6 +322,32 @@ function App() {
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error ?? 'Submission failed')
+      if (response.status === 202) {
+        setRunOutput('Queued...')
+        const deadline = Date.now() + 120_000
+        let submission
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 500))
+          const statusResponse = await fetch(`${API_URL}/api/submissions/${result.submissionId}/status`, {
+            headers: { 'x-client-id': clientId },
+            credentials: 'include',
+          })
+          if (!statusResponse.ok) throw new Error('Could not read submission status')
+          submission = await statusResponse.json()
+          setRunOutput(submission.status === 'running' ? 'Running tests...' : 'Queued...')
+          if (submission.status === 'passed' || submission.status === 'failed') break
+        }
+        if (!submission || (submission.status !== 'passed' && submission.status !== 'failed')) {
+          throw new Error('Submission timed out')
+        }
+        result.status = submission.status
+        result.results = submission.results ?? []
+        result.totalExecutionTimeMs = submission.totalExecutionTimeMs
+        result.executionTimeMs = submission.executionTimeMs
+        result.maxMemoryUsedKb = submission.maxMemoryUsedKb
+        result.memoryUsedKb = submission.memoryUsedKb
+        result.complexity = submission.complexity
+      }
 
       const testOutput = (result.results as Array<{
         input: string
@@ -166,6 +370,7 @@ function App() {
       ].filter(Boolean).join('\n')
 
       setRunOutput([testOutput, metrics].filter(Boolean).join('\n\n'))
+      void loadSubmissionHistory()
       if (result.status === 'passed') {
         setSolvedProblems((current) => {
           const next = new Set(current)
@@ -201,14 +406,21 @@ function App() {
     } else if (label === 'Overview') {
       goToDashboard()
     } else {
-      setNotice('Progress data will appear after submissions are connected.')
+      setNotice(`${solvedCount} problem${solvedCount === 1 ? '' : 's'} solved. ${dailyProgress} of ${dailyGoal} daily goal completed.`)
     }
   }
 
   const currentProblem = selectedProblem ?? filteredProblems[0]
   const solvedCount = solvedProblems.size
   const dailyGoal = 5
-  const dailyProgress = Math.min(solvedCount, dailyGoal)
+  const dailyProgress = Math.min(authUser ? dailySolvedCount : solvedCount, dailyGoal)
+  const accountName = authUser?.displayName ?? 'Learner'
+  const accountInitials = authUser
+    ? accountName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'IN'
+    : 'IN'
+  const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(dashboardNow)
+  const hour = dashboardNow.getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const statCards = [
     { label: 'Problems solved', value: String(solvedCount), detail: solvedCount ? 'Saved on this device' : 'Start solving', icon: CheckCircle2, tone: 'green' },
     { label: 'Daily progress', value: `${dailyProgress} / ${dailyGoal}`, detail: dailyProgress === dailyGoal ? 'Daily goal complete' : 'Keep your streak going', icon: Flame, tone: 'orange' },
@@ -224,7 +436,7 @@ function App() {
             <div className="problem-breadcrumb">
               <span>Problem</span><ChevronRight size={14} /><strong>{selectedProblem.title}</strong>
             </div>
-            <div className="problem-status"><span className={`difficulty ${selectedProblem.difficulty}`}>{selectedProblem.difficulty}</span></div>
+            <div className="problem-status"><span className={`difficulty ${selectedProblem.difficulty}`}>{selectedProblem.difficulty}</span><button type="button" className="avatar account-avatar" onClick={() => setIsAuthOpen(true)} aria-label="Open account">{accountInitials}</button></div>
           </header>
 
           <div className="workspace-grid">
@@ -244,6 +456,19 @@ function App() {
                     <div><b>Output</b><code>{test.expectedOutput}</code></div>
                   </div>
                 ))}
+              </div>
+
+              <div className="submission-history">
+                <div className="history-heading"><h2>Recent submissions</h2><span>{submissionHistory.filter((item) => item.problemSlug === selectedProblem.slug).length}</span></div>
+                {submissionHistory.filter((item) => item.problemSlug === selectedProblem.slug).slice(0, 5).map((submission) => (
+                  <div className="history-row" key={submission._id}>
+                    <span className={`history-status ${submission.status}`}>{submission.status === 'passed' ? 'Passed' : 'Failed'}</span>
+                    <span>{submission.language}</span>
+                    <span>{submission.passedTests}/{submission.totalTests}</span>
+                    <time dateTime={submission.createdAt}>{new Date(submission.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                  </div>
+                ))}
+                {!submissionHistory.some((item) => item.problemSlug === selectedProblem.slug) && <p className="history-empty">Your submissions will appear here.</p>}
               </div>
             </article>
 
@@ -276,6 +501,7 @@ function App() {
             </article>
           </div>
         </main>
+        {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
       </div>
     )
   }
@@ -289,7 +515,7 @@ function App() {
           <button type="button" className="icon-button mobile-close" onClick={() => setIsSidebarOpen(false)} aria-label="Close navigation"><X size={18} /></button>
         </div>
         <div className="workspace-switcher">
-          <div className="workspace-avatar">AM</div><div><strong>Alex Morgan</strong><span>Personal workspace</span></div>
+          <div className="workspace-avatar">{accountInitials}</div><div><strong>{accountName}</strong><span>{authUser ? 'Personal workspace' : 'Guest workspace'}</span></div>
           <ChevronRight size={16} className="muted-icon" />
         </div>
         <nav className="sidebar-nav" aria-label="Main navigation">
@@ -319,13 +545,13 @@ function App() {
         <header className="topbar">
           <button type="button" className="icon-button mobile-menu" onClick={() => setIsSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
           <div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} /><strong>{activeNav}</strong></div>
-          <div className="topbar-actions"><button type="button" className="shortcut-button" onClick={() => searchInputRef.current?.focus()}><span>⌘</span> K</button><div className="avatar">AM</div></div>
+          <div className="topbar-actions"><button type="button" className="shortcut-button" onClick={() => searchInputRef.current?.focus()}><span>⌘</span> K</button><button type="button" className="avatar" onClick={() => setIsAuthOpen(true)} aria-label="Open account">{accountInitials}</button></div>
         </header>
 
         <div className="page-content">
           {notice && <p className="page-notice" role="status">{notice}</p>}
           <section className="welcome-row">
-            <div><p className="eyebrow">Wednesday, November 19</p><h1>Good morning, Alex.</h1><p className="page-subtitle">A focused session beats a long one. Let&apos;s make today count.</p></div>
+            <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, {authUser?.displayName.split(/\s+/)[0] ?? 'Learner'}.</h1><p className="page-subtitle">A focused session beats a long one. Let&apos;s make today count.</p></div>
             <button type="button" className="primary-button" onClick={() => currentProblem && void openProblem(currentProblem)}><Sparkles size={16} /> Start practice</button>
           </section>
 
@@ -370,6 +596,7 @@ function App() {
           </section>
         </div>
       </main>
+      {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
     </div>
   )
 }

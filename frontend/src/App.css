@@ -55,6 +55,7 @@
 .shortcut-button span { font-size: 13px; }
 .icon-button { display: grid; place-items: center; border-radius: 8px; padding: 7px; }
 .avatar { width: 31px; height: 31px; border-radius: 50%; font-size: 10px; }
+.account-avatar { border: 0; cursor: pointer; }
 .page-content { max-width: 1280px; margin: 0 auto; padding: 42px; }
 .welcome-row { justify-content: space-between; align-items: flex-end; gap: 20px; }
 .welcome-actions { display: grid; justify-items: end; gap: 8px; max-width: 310px; }
@@ -176,6 +177,15 @@ h2 { color: var(--ink); font-size: 16px; letter-spacing: -.02em; }
 .example div { display: grid; grid-template-columns: 52px 1fr; align-items: start; gap: 8px; }
 .example b { color: #7d8793; font-size: 11px; }
 .example code { overflow-wrap: anywhere; color: #35414f; font-size: 12px; }
+.submission-history { display: grid; gap: 9px; margin-top: 32px; }
+.history-heading { display: flex; align-items: center; justify-content: space-between; }
+.history-heading span { min-width: 20px; border-radius: 99px; background: var(--brand-soft); color: var(--brand); padding: 3px 6px; text-align: center; font-size: 10px; font-weight: 700; }
+.history-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: #7d8793; font-size: 10px; text-transform: capitalize; }
+.history-status { font-weight: 700; }
+.history-status.passed { color: var(--green); }
+.history-status.failed { color: #c65a5a; }
+.history-row time { color: #a4adb8; text-transform: none; }
+.history-empty { color: var(--muted); font-size: 11px; }
 .editor-panel { display: grid; grid-template-rows: 52px minmax(300px, 1fr) 154px; min-height: 0; }
 .editor-toolbar { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 8px 12px; }
 .language-tabs { display: flex; gap: 4px; }
@@ -197,6 +207,17 @@ h2 { color: var(--ink); font-size: 16px; letter-spacing: -.02em; }
 .console-output { align-self: stretch; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: white; color: #87919d; padding: 10px; font-size: 11px; }
 .console-output pre { margin: 0; white-space: pre-wrap; color: #596575; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .editor-footer .primary-button { height: 38px; }
+.auth-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; background: rgba(22, 27, 38, .36); }
+.auth-card { position: relative; width: min(100%, 390px); display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 16px; background: white; padding: 28px; box-shadow: 0 20px 60px rgba(20, 25, 40, .18); }
+.auth-card h2 { font-size: 22px; }
+.auth-close { position: absolute; top: 16px; right: 16px; border: 0; }
+.auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.auth-form { display: grid; gap: 12px; margin-top: 6px; }
+.auth-form label { display: grid; gap: 6px; color: #596575; font-size: 11px; font-weight: 650; }
+.auth-form input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; outline: 0; padding: 10px; color: var(--ink); font: inherit; font-weight: 400; }
+.auth-form input:focus { border-color: #b7afff; box-shadow: 0 0 0 3px var(--brand-soft); }
+.auth-error { color: #c65a5a; font-size: 11px; }
+.auth-switch { justify-self: center; }
 
 @media (max-width: 980px) {
   .page-content { padding: 32px 24px; }
