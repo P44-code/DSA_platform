@@ -47,7 +47,7 @@ const clientId = (() => {
 
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard },
-  { label: 'Problems', icon: Code2, count: '10' },
+  { label: 'Problems', icon: Code2 },
   { label: 'Progress', icon: BarChart3 },
 ]
 
@@ -59,6 +59,7 @@ function AuthModal({
   password,
   error,
   isLoading,
+  showClose,
   onModeChange,
   onNameChange,
   onEmailChange,
@@ -74,6 +75,7 @@ function AuthModal({
   password: string
   error: string | null
   isLoading: boolean
+  showClose: boolean
   onModeChange: (mode: AuthMode) => void
   onNameChange: (value: string) => void
   onEmailChange: (value: string) => void
@@ -82,10 +84,46 @@ function AuthModal({
   onLogout: () => void
   onClose: () => void
 }) {
+  const cardRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    cardRef.current?.querySelector<HTMLInputElement>('input')?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && showClose) {
+        event.preventDefault()
+        onCloseRef.current()
+      }
+      if (event.key === 'Tab') {
+        const focusable = Array.from(cardRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [])
+        if (!focusable.length) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showClose])
+
   return (
-    <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-        <button type="button" className="auth-close icon-button" onClick={onClose} aria-label="Close account dialog"><X size={17} /></button>
+    <div className="auth-backdrop" role="presentation" onMouseDown={(event) => showClose && event.target === event.currentTarget && onClose()}>
+      <section ref={cardRef} className="auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        {showClose && <button type="button" className="auth-close icon-button" onClick={onClose} aria-label="Close account dialog"><X size={17} /></button>}
         {user ? (
           <>
             <span className="eyebrow">Account</span>
@@ -133,6 +171,7 @@ function App() {
   const [submissionHistory, setSubmissionHistory] = useState<SubmissionHistoryItem[]>([])
   const [dailySolvedCount, setDailySolvedCount] = useState(0)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [isAuthChecking, setIsAuthChecking] = useState(true)
   const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
@@ -188,6 +227,9 @@ function App() {
         }
       })
       .catch(() => undefined)
+      .finally(() => {
+        if (!ignore) setIsAuthChecking(false)
+      })
 
     return () => {
       ignore = true
@@ -262,6 +304,7 @@ function App() {
       setAuthUser(result.user)
       setAuthPassword('')
       setIsAuthOpen(false)
+      void loadSubmissionHistory()
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Authentication failed')
     } finally {
@@ -278,7 +321,7 @@ function App() {
   }
 
   const closeAuth = () => {
-    setIsAuthOpen(false)
+    if (authUser) setIsAuthOpen(false)
   }
 
   async function openProblem(problem: Problem) {
@@ -422,16 +465,48 @@ function App() {
   const dailyProgress = Math.min(authUser ? dailySolvedCount : solvedCount, dailyGoal)
   const accountName = authUser?.displayName ?? 'Learner'
   const accountInitials = authUser
-    ? accountName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'IN'
-    : 'IN'
+    ? accountName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'VA'
+    : 'VA'
   const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(dashboardNow)
   const hour = dashboardNow.getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const statCards = [
-    { label: 'Problems solved', value: String(solvedCount), detail: solvedCount ? 'Saved on this device' : 'Start solving', icon: CheckCircle2, tone: 'green' },
+    { label: 'Problems solved', value: String(solvedCount), detail: solvedCount ? 'Saved with your account' : 'Start solving', icon: CheckCircle2, tone: 'green' },
     { label: 'Daily progress', value: `${dailyProgress} / ${dailyGoal}`, detail: dailyProgress === dailyGoal ? 'Daily goal complete' : 'Keep your streak going', icon: Flame, tone: 'orange' },
     { label: 'Total points', value: String(solvedCount * 70), detail: '70 points per problem', icon: Trophy, tone: 'purple' },
   ]
+
+  if (isAuthChecking) {
+    return (
+      <div className="auth-loading" role="status" aria-label="Checking account">
+        <div className="brand-mark"><Sparkles size={17} /></div>
+      </div>
+    )
+  }
+
+  if (!authUser) {
+    return (
+      <main className="auth-gate">
+        {isAuthOpen && <AuthModal
+          mode={authMode}
+          user={null}
+          name={authName}
+          email={authEmail}
+          password={authPassword}
+          error={authError}
+          isLoading={isAuthLoading}
+          showClose={false}
+          onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }}
+          onNameChange={setAuthName}
+          onEmailChange={setAuthEmail}
+          onPasswordChange={setAuthPassword}
+          onSubmit={submitAuth}
+          onLogout={() => void logout()}
+          onClose={closeAuth}
+        />}
+      </main>
+    )
+  }
 
   if (activeView === 'problem' && selectedProblem) {
     return (
@@ -507,7 +582,7 @@ function App() {
             </article>
           </div>
         </main>
-        {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
+        {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} showClose={true} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
       </div>
     )
   }
@@ -521,16 +596,17 @@ function App() {
           <button type="button" className="icon-button mobile-close" onClick={() => setIsSidebarOpen(false)} aria-label="Close navigation"><X size={18} /></button>
         </div>
         <div className="workspace-switcher">
-          <div className="workspace-avatar">{accountInitials}</div><div><strong>{accountName}</strong><span>{authUser ? 'Personal workspace' : 'Guest workspace'}</span></div>
+          <div className="workspace-avatar">{accountInitials}</div><div><strong>{accountName}</strong><span>Personal workspace</span></div>
           <ChevronRight size={16} className="muted-icon" />
         </div>
         <nav className="sidebar-nav" aria-label="Main navigation">
           <span className="eyebrow">Workspace</span>
           {navItems.map((item) => {
             const Icon = item.icon
+            const count = item.label === 'Problems' ? String(problems.length) : undefined
             return (
               <button type="button" className={`nav-item ${activeNav === item.label ? 'active' : ''}`} aria-current={activeNav === item.label ? 'page' : undefined} onClick={() => showSection(item.label)} key={item.label}>
-                <Icon size={17} /><span>{item.label}</span>{item.count && <span className="nav-count">{item.count}</span>}
+                <Icon size={17} /><span>{item.label}</span>{count && <span className="nav-count">{count}</span>}
               </button>
             )
           })}
@@ -541,7 +617,7 @@ function App() {
             <div className="progress-track"><span style={{ width: `${(dailyProgress / dailyGoal) * 100}%` }} /></div>
             <p>{dailyProgress === dailyGoal ? 'Daily goal complete.' : `${dailyGoal - dailyProgress} more problem${dailyGoal - dailyProgress === 1 ? '' : 's'} to stay on track.`}</p>
           </div>
-          <button type="button" className="nav-item" onClick={() => setNotice('Settings are connected from your account.')}><Settings size={17} /><span>Settings</span></button>
+          <button type="button" className="nav-item" onClick={() => setIsAuthOpen(true)}><Settings size={17} /><span>Account settings</span></button>
           <button type="button" className="nav-item" onClick={() => setNotice('Open a problem and run your visible test cases.')}><CircleHelp size={17} /><span>Help center</span></button>
         </div>
       </aside>
@@ -602,7 +678,7 @@ function App() {
           </section>
         </div>
       </main>
-      {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
+      {isAuthOpen && <AuthModal mode={authMode} user={authUser} name={authName} email={authEmail} password={authPassword} error={authError} isLoading={isAuthLoading} showClose={true} onModeChange={(mode) => { setAuthMode(mode); setAuthError(null) }} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onSubmit={submitAuth} onLogout={() => void logout()} onClose={closeAuth} />}
     </div>
   )
 }
