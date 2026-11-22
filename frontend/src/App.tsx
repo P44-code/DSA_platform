@@ -133,9 +133,7 @@ function App() {
   const [submissionHistory, setSubmissionHistory] = useState<SubmissionHistoryItem[]>([])
   const [dailySolvedCount, setDailySolvedCount] = useState(0)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
-  const [isAuthOpen, setIsAuthOpen] = useState(() => {
-    return !localStorage.getItem('verdictai-auth-dismissed')
-  })
+  const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
@@ -177,15 +175,23 @@ function App() {
   }, [])
 
   useEffect(() => {
-    fetch(`${API_URL}/api/auth/me`, { credentials: 'include' })
+    let ignore = false
+
+    void fetch(`${API_URL}/api/auth/me`, { credentials: 'include' })
       .then(async (response) => {
-        if (response.ok) {
-          const user = (await response.json()).user
+        if (!response.ok) return
+        const user = (await response.json()).user as AuthUser | null
+        if (!ignore) {
           setAuthUser(user)
+          setIsAuthOpen(!user)
           if (user) void loadSubmissionHistory()
         }
       })
       .catch(() => undefined)
+
+    return () => {
+      ignore = true
+    }
   }, [])
 
   useEffect(() => {
@@ -266,12 +272,12 @@ function App() {
   const logout = async () => {
     await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' })
     setAuthUser(null)
-    localStorage.removeItem('verdictai-auth-dismissed')
-    setIsAuthOpen(false)
+    setAuthMode('register')
+    setAuthError(null)
+    setIsAuthOpen(true)
   }
 
   const closeAuth = () => {
-    localStorage.setItem('verdictai-auth-dismissed', 'true')
     setIsAuthOpen(false)
   }
 
