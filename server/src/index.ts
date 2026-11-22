@@ -1,15 +1,12 @@
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
 import mongoose from 'mongoose';
+import './config/env.js';
 import { getPort } from './config/constants.js';
 import { problemRouter } from './routes/problems.js';
 import { submissionRouter } from './routes/submissions.js';
 import { authRouter } from './routes/auth.js';
 import { connectDatabase } from './services/database.js';
-
-dotenv.config({ path: new URL('../.env', import.meta.url) });
-
 const app = express();
 
 const port = getPort();
@@ -58,12 +55,22 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
   });
 });
 
-connectDatabase()
-  .catch((error: unknown) => {
-    console.error('MongoDB connection failed:', error);
-  })
-  .finally(() => {
-    app.listen(port, () => {
-      console.log(`VerdictAI server listening on http://localhost:${port}`);
-    });
+async function startServer() {
+  const databaseRequired = process.env.NODE_ENV === 'production';
+
+  try {
+    await connectDatabase({ required: databaseRequired });
+  } catch (error: unknown) {
+    console.error('MongoDB connection failed:', error instanceof Error ? error.message : 'Unknown database error');
+    if (databaseRequired) {
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  app.listen(port, () => {
+    console.log(`VerdictAI server listening on http://localhost:${port}`);
   });
+}
+
+void startServer();

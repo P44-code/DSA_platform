@@ -1,10 +1,8 @@
-import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import fs from 'node:fs';
+import '../config/env.js';
 import { ProblemModel, type Problem } from '../models/Problem.js';
 import { connectDatabase } from '../services/database.js';
-
-dotenv.config({ path: new URL('../../.env', import.meta.url) });
 
 const starterCode = new Map([
   ['javascript', 'const fs = require("fs");\n\nfunction solve(input) {\n  // Write your solution\n  return "";\n}\n\nconsole.log(solve(fs.readFileSync(0, "utf8").trim()));\n'],
