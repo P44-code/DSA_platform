@@ -1,6 +1,4 @@
 node_modules
-**/.env
-**/.env.*
-!**/.env.example
+.env
 dist
-server/hidden-tests.json
+.github/
